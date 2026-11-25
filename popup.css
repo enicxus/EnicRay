@@ -137,9 +137,8 @@ details > summary:hover { color: var(--text); }
 .verdict { font: 800 13.5px "Consolas", monospace; padding: 6px; border-radius: 6px; text-align: center; margin-bottom: 6px; letter-spacing: .8px; }
 .verdict.verified { background: #052e16; color: #4ade80; border: 1px solid var(--green); }
 .verdict.known { background: #082f3a; color: #67e8f9; border: 1px solid #0891b2; }
-.verdict.clean { background: #0a2a18; color: #86efac; border: 1px solid #166534; }
-.verdict.suspicious { background: #2a2105; color: #fde047; border: 1px solid #854d0e; }
-.verdict.danger, .verdict.mismatch, .verdict.modified, .verdict.malware { background: #2b0e12; color: #fca5a5; border: 1px solid var(--red); animation: alert 1.6s infinite; }
+.verdict.neutral { background: #1e293b; color: #cbd5e1; border: 1px solid #475569; }
+.verdict.danger, .verdict.mismatch { background: #2b0e12; color: #fca5a5; border: 1px solid var(--red); animation: alert 1.6s infinite; }
 @keyframes alert { 50% { box-shadow: 0 0 14px rgba(239, 68, 68, .5); } }
 #findings { list-style: none; margin: 0 0 6px; padding: 0; max-height: 96px; overflow-y: auto; }
 #findings li { padding: 3px 6px; margin-bottom: 2px; border-radius: 4px; background: var(--panel2); border-left: 3px solid var(--dim); font-size: 10.5px; }

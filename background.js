@@ -10,8 +10,8 @@ importScripts('config.js');
 
 const OFFSCREEN_PATH = 'offscreen.html';
 const BADGE = {
-  verified: ['OK', '#16a34a'], clean: ['OK', '#22c55e'], suspicious: ['!', '#eab308'],
-  danger: ['X', '#ef4444'], mismatch: ['X', '#ef4444'], modified: ['X', '#ef4444'], malware: ['X', '#ef4444'], known: ['OK', '#06b6d4']
+  verified: ['OK', '#16a34a'], known: ['OK', '#06b6d4'], neutral: ['—', '#64748b'],
+  danger: ['X', '#ef4444'], mismatch: ['X', '#ef4444']
 };
 
 async function hasOffscreen() {

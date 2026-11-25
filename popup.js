@@ -5,15 +5,12 @@ const $ = (id) => document.getElementById(id);
 const MAP_COLORS = ['#0b1220', '#22c55e', '#3b82f6', '#eab308', '#ef4444'];
 const VERDICT_LABEL = {
   verified: 'VERIFIED — HASH MATCH',
-  known: 'FIRMA ÍNTEGRA VERIFICADA',
-  malware: 'MALWARE CONFIRMADO',
-  clean: 'CLEAN — NO ANOMALIES FOUND',
-  suspicious: 'SUSPICIOUS',
-  danger: 'DANGEROUS',
-  mismatch: 'HASH MISMATCH',
-  modified: 'ARCHIVO MODIFICADO / POSIBLE MALWARE'
+  known: 'FIRMA AUTÉNTICA',
+  neutral: 'ARCHIVO AJENO (FUERA DE ALCANCE)',
+  danger: 'FALSIFICACIÓN / ESTAFA',
+  mismatch: 'HASH MISMATCH'
 };
-const BAD_VERDICTS = ['danger', 'mismatch', 'modified', 'malware'];
+const BAD_VERDICTS = ['danger', 'mismatch'];
 const HEX64 = /^[0-9a-f]{64}$/i;
 
 let scan = { status: 'idle' };
@@ -283,7 +280,7 @@ function render() {
 
 /* ---------- report ---------- */
 function buildReport(r) {
-  const icon = { verified: '✅', known: '🔷', clean: '🟢', suspicious: '⚠️', danger: '🛑', mismatch: '🛑', modified: '🛑', malware: '☠️' }[r.verdict] || '';
+  const icon = { verified: '✅', known: '🔷', neutral: '⚪', danger: '🛑', mismatch: '🛑' }[r.verdict] || '';
   const lines = [];
   lines.push('## 🛡️ EnicRay Forensic Report');
   lines.push('');

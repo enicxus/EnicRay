@@ -98,104 +98,27 @@ function safeUrlLabel(url) {
   try { const u = new URL(url); return u.origin + u.pathname; } catch (_) { return url; }
 }
 
-/* ---------- verdict engine ---------- */
+/* ---------- verdict engine (3-rule integrity & anti-scam verifier) ---------- */
 function evaluate(c) {
   const f = [];
   const add = (level, text) => f.push({ level, text });
-  const ext = extOf(c.fileName);
-  const fmt = c.magic ? c.magic.id : null;
 
-  if (c.magic) add('info', `Real format by magic bytes: ${c.magic.label}.`);
-  else add('info', 'No known magic bytes recognised at the start of the file.');
+  if (c.magic) add('info', `Formato real (magic bytes): ${c.magic.label}.`);
+  else add('info', 'No se reconocieron magic bytes conocidos al inicio del archivo.');
 
-  if (fmt === 'PE' && c.magic.validHeader === false) add('warn', 'MZ signature present but the PE header is malformed.');
-  const expectedFmt = Forensics.EXT_FORMAT[ext];
-  if (fmt === 'PE' && !Forensics.PE_EXTS.has(ext)) {
-    add('crit', `Executable payload disguised behind the extension ".${ext || 'none'}".`);
-  } else if (expectedFmt && fmt && expectedFmt !== fmt) {
-    add('warn', `Extension ".${ext}" suggests ${expectedFmt} but the real format is ${fmt}.`);
-  } else if (expectedFmt && !fmt) {
-    add('warn', `Extension ".${ext}" suggests ${expectedFmt} but the signature was not recognised.`);
-  }
-
+  // Padding detection
+  let hasMassivePadding = false;
   if (c.mode === 'full') {
     const padRatio = c.blocks ? c.padBlocks / c.blocks : 0;
-    if (padRatio > 0.2) add('crit', `${(padRatio * 100).toFixed(1)}% of blocks are near-zero entropy: file is likely artificially inflated / padded.`);
-    else if (c.padBlocks > 0 && padRatio > 0.05) add('warn', `${c.padBlocks} low-entropy (padding-like) blocks detected (${(padRatio * 100).toFixed(1)}%).`);
-
-    const highRatio = c.blocks ? c.highBlocks / c.blocks : 0;
-    const compressedContainer = c.magic && c.magic.compressed;
-    if (compressedContainer) {
-      if (c.highBlocks) add('info', `High entropy across ${(highRatio * 100).toFixed(0)}% of blocks is expected for a compressed container.`);
-    } else if (highRatio > 0.6) {
-      add('crit', `${(highRatio * 100).toFixed(0)}% of blocks have entropy > 7.5: strong sign of packed/encrypted payload.`);
-    } else if (highRatio > 0.3) {
-      add('warn', `${(highRatio * 100).toFixed(0)}% of blocks have entropy > 7.5: possibly packed or obfuscated.`);
-    }
-  } else {
+    if (padRatio > 0.2) hasMassivePadding = true;
+  } else if (c.samples) {
     const padded = c.samples.filter(s => s.sev === SEV.THREAT && s.entropy < Forensics.ENTROPY_LOW).length;
-    if (padded >= 2) add('crit', `${padded}/${c.samples.length} sampled regions are empty/zero-filled: file is almost certainly inflated.`);
-    else if (padded === 1) add('warn', '1 sampled region is empty/zero-filled: possible padding or sparse data.');
-    const highs = c.samples.filter(s => s.entropy > Forensics.ENTROPY_HIGH).length;
-    if (!(c.magic && c.magic.compressed) && highs >= 3) add('warn', `${highs}/${c.samples.length} sampled regions have very high entropy (possible packing/encryption).`);
+    if (padded >= 2) hasMassivePadding = true;
   }
 
-  const crit = c.dangerous.filter(p => p.critical);
-  if (crit.length) add('crit', `Encoded PowerShell command pattern found: "${crit[0].name}".`);
-  const names = c.dangerous.filter(p => !p.critical);
-  if (names.length >= 3) add('crit', `Multiple malicious API/strings found together: ${names.map(p => p.name).join(', ')}.`);
-  else if (names.length) add('warn', `Suspicious API/strings: ${names.map(p => p.name + ' (' + p.cat + ')').join(', ')}.`);
-  if (c.libraries.length) add('info', `Runtime libraries referenced: ${c.libraries.map(p => p.name).join(', ')}.`);
-  if (c.mode === 'full' && !c.libraries.length && fmt === 'PE') add('info', 'No standard graphics/runtime library references found in plain text.');
-
-  if (c.mode === 'full' && c.declared > 0 && !c.encoded && c.bytes !== c.declared) {
-    add('warn', `Received ${c.bytes} bytes but the server declared ${c.declared}.`);
-  }
-
-  // Known-signature allowlist (auto-detection, always on in full mode)
-  let known = c.forceKnown || null;
-  if (!known && c.mode === 'full') known = Signatures.find(c.sha);
-
-  let hashMatch = null;
-  if (c.expected) {
-    if (c.mode === 'full') {
-      hashMatch = c.sha === c.expected;
-      add(hashMatch || known ? 'info' : 'crit', hashMatch
-        ? 'El SHA-256 coincide con el hash personalizado.'
-        : 'El SHA-256 NO coincide con el hash personalizado.');
-    } else {
-      add('info', 'Hash personalizado indicado, pero el SHA-256 requiere Auditoría Completa (el modo Rayos X solo muestrea).');
-    }
-  }
-
-  let modified = false;
-  const intel = c.intel || { status: 'skipped' };
+  // ZIP inner .exe inspection info
   const zipIns = c.zipInspection || null;
   const innerExes = (zipIns && zipIns.exes) || [];
-  const innerMalware = innerExes.find(e => e.intel && e.intel.status === 'malware') || null;
-  const innerKnownEntry = (!known && !innerMalware) ? (innerExes.find(e => e.known) || null) : null;
-  const effectiveKnown = known || (innerKnownEntry ? innerKnownEntry.known : null);
-  const effectiveIntel = (intel.status === 'malware') ? intel : (innerMalware ? innerMalware.intel : intel);
-
-  const sizeInfo = { fileName: c.fileName, fmt, ext, size: c.mode === 'full' ? c.bytes : c.declared };
-  if (known) {
-    add('info', `Firma Íntegra Verificada: ${known.label}. Archivo sin alterar (SHA-256 idéntico), sin malware.`);
-    if (known.kind === 'exe') {
-      add('warn', 'Aviso: este ejecutable es un binario de consola y NO es compatible con Windows; no se puede ejecutar en PC.');
-    }
-  } else {
-    if (intel.status === 'malware') {
-      add('crit', `MALWARE CONFIRMADO (MalwareBazaar): familia ${intel.signature || 'sin clasificar'}. No descargues ni ejecutes este archivo.`);
-    } else if (intel.status === 'not_found') {
-      add('info', 'MalwareBazaar: hash no encontrado; se continúa con el análisis heurístico local.');
-    } else if (intel.status === 'unavailable') {
-      add('info', `MalwareBazaar no disponible (${intel.detail || 'error'}); consulta omitida, análisis local activo.`);
-    } else if (intel.status === 'no_key') {
-      add('info', 'MalwareBazaar: sin Auth-Key en config.js; consulta en la nube omitida.');
-    }
-  }
-
-  // Deep ZIP inner-.exe inspection findings
   if (zipIns && zipIns.skippedTooLarge) {
     add('info', 'Archivo ZIP >= 300 MB: inspección en memoria de .exe internos omitida por límite de tamaño.');
   }
@@ -203,61 +126,52 @@ function evaluate(c) {
     if (ex.error === 'encrypted') {
       add('warn', `EXE interno "${ex.name}" cifrado con contraseña: no se pudo descomprimir en memoria.`);
     } else if (ex.error === 'zip_bomb_limit') {
-      add('crit', `EXE interno "${ex.name}" superó el límite descomprimido (posible zip bomb).`);
+      add('warn', `EXE interno "${ex.name}" superó el límite descomprimido.`);
     } else if (ex.error) {
-      add('warn', `EXE interno "${ex.name}" no pudo analizarse (${ex.error}).`);
+      add('info', `EXE interno "${ex.name}" no pudo analizarse (${ex.error}).`);
     } else if (ex.sha256) {
-      if (ex.known) {
-        add('info', `EXE interno verificado en allowlist ("${ex.name}"): ${ex.known.label}. Binario íntegro sin alterar (SHA-256: ${ex.sha256.slice(0, 16)}…).`);
-        if (ex.known.kind === 'exe') {
-          add('warn', `Aviso: el ejecutable interno "${ex.name}" es un binario de consola y NO es compatible con Windows.`);
-        }
-      } else if (ex.intel && ex.intel.status === 'malware') {
-        add('crit', `MALWARE CONFIRMADO en EXE interno "${ex.name}" (MalwareBazaar): familia ${ex.intel.signature || 'sin clasificar'} (SHA-256: ${ex.sha256}).`);
-      } else {
-        const mbNote = ex.intel
-          ? (ex.intel.status === 'not_found' ? 'no encontrado en MalwareBazaar'
-            : ex.intel.status === 'no_key' ? 'MalwareBazaar omitido sin Auth-Key'
-            : `MalwareBazaar no disponible: ${ex.intel.detail || 'error'}`)
-          : 'no consultado';
-        add('info', `EXE interno "${ex.name}" (${ex.bytesDecompressed} B) — SHA-256: ${ex.sha256.slice(0, 16)}… (${mbNote}).`);
-      }
-      if (ex.expectedMatch === true) {
-        add('info', `El EXE interno "${ex.name}" coincide con el SHA-256 personalizado.`);
-      }
+      add('info', `EXE interno "${ex.name}" (${ex.bytesDecompressed} B) — SHA-256: ${ex.sha256.slice(0, 16)}…`);
     }
   }
+
+  // Rule 1: FIRMA AUTÉNTICA (outer file or inner .exe matches reference allowlist)
+  let known = c.forceKnown || null;
+  if (!known && c.mode === 'full') known = Signatures.find(c.sha);
+  const innerKnownEntry = !known ? (innerExes.find(e => e.known) || null) : null;
+  const effectiveKnown = known || (innerKnownEntry ? innerKnownEntry.known : null);
+
+  // Optional custom hash check
+  let hashMatch = null;
+  if (c.expected) {
+    if (c.mode === 'full') {
+      hashMatch = c.sha === c.expected;
+      add(hashMatch || effectiveKnown ? 'info' : 'crit', hashMatch
+        ? 'El SHA-256 coincide con el hash personalizado.'
+        : 'El SHA-256 NO coincide con el hash personalizado.');
+    } else {
+      add('info', 'Hash personalizado indicado, pero el SHA-256 requiere Auditoría Completa (el modo Rayos X solo muestrea).');
+    }
+  }
+
+  const hasKeyword = !c.demo && Signatures.hasSuspiciousKeyword(c.fileName, c.url);
+  let verdict;
 
   if (effectiveKnown) {
-    // allowlist hit (outer file or inner EXE): nothing else may raise red alerts
-  } else if (c.mode === 'full') {
-    if (!c.demo && Signatures.looksLikeInstaller(sizeInfo)) {
-      modified = true;
-      add('crit', 'ARCHIVO MODIFICADO / POSIBLE MALWARE: se presenta como instalador o paquete (.exe/.zip) pero su SHA-256 no coincide con ninguna firma conocida.');
-    } else {
-      add('info', 'Auto-detección: sin coincidencia con las firmas conocidas.');
-    }
+    verdict = 'known';
+    add('info', 'Archivo íntegro sin alterar (Coincide con la firma original). Nota: Es un archivo de consola Xbox, no es jugable en PC.');
+  } else if (hasKeyword || hasMassivePadding) {
+    verdict = 'danger';
+    add('crit', 'ARCHIVO FALSO / POSIBLE ESTAFA: No coincide con la firma original o contiene relleno basura.');
+  } else if (hashMatch === false) {
+    verdict = 'mismatch';
+  } else if (hashMatch === true) {
+    verdict = 'verified';
   } else {
-    add('info', 'La auto-detección de firmas requiere Auditoría Completa (SHA-256).');
-    if (!c.demo && Signatures.looksLikeInstaller(sizeInfo)) {
-      add('warn', 'El tamaño/nombre se parece a un instalador conocido: ejecuta la Auditoría Completa para verificar su integridad.');
-    }
+    verdict = 'neutral';
+    add('info', 'Fuera de alcance: Este archivo no corresponde a la campaña monitoreada.');
   }
 
-  if (effectiveKnown) f.forEach(x => { if (x.level === 'crit') x.level = 'warn'; }); // allowlist stops red alerts
-  const hasCrit = f.some(x => x.level === 'crit');
-  const hasWarn = f.some(x => x.level === 'warn');
-  let verdict;
-  if (known) verdict = 'known';
-  else if (effectiveIntel.status === 'malware') verdict = 'malware';
-  else if (innerKnownEntry) verdict = 'known';
-  else if (hashMatch === true && !hasCrit) verdict = 'verified';
-  else if (hashMatch === false) verdict = 'mismatch';
-  else if (modified) verdict = 'modified';
-  else if (hasCrit) verdict = 'danger';
-  else if (hasWarn) verdict = 'suspicious';
-  else verdict = 'clean';
-  return { verdict, findings: f, hashMatch, known: effectiveKnown, intel: effectiveIntel };
+  return { verdict, findings: f, hashMatch, known: effectiveKnown };
 }
 
 /* ---------- Threat intelligence: MalwareBazaar (abuse.ch) ---------- */
@@ -431,23 +345,11 @@ async function fullAudit(job, expected, ctrl) {
   const zipRes = zipInspector ? await zipInspector.finalize() : null;
   const innerExes = (zipRes && zipRes.exes) || [];
 
-  // Cascade: 1) local allowlist (inside evaluate)  2) MalwareBazaar  3) inner .exe checks  4) local heuristics
-  let intel = { status: 'skipped' };
-  const allowlisted = job.demo === 'known' || !!Signatures.find(sha);
-  if (!allowlisted && !job.demo) {
-    intel = await queryMalwareBazaar(sha, job.abuseKey, ctrl.signal);
-    if (ctrl.signal.aborted) throw new DOMException('Aborted', 'AbortError');
-  }
+  // Check inner .exe entries against allowlist only (no cloud lookup)
   for (const ex of innerExes) {
     if (!ex.sha256) continue;
     ex.known = Signatures.find(ex.sha256);
     ex.expectedMatch = expected ? (ex.sha256 === expected) : null;
-    if (!ex.known && !job.demo) {
-      ex.intel = await queryMalwareBazaar(ex.sha256, job.abuseKey, ctrl.signal);
-      if (ctrl.signal.aborted) throw new DOMException('Aborted', 'AbortError');
-    } else {
-      ex.intel = { status: 'skipped' };
-    }
   }
 
   const zipInspection = (magic && magic.id === 'ZIP') ? {
@@ -459,7 +361,7 @@ async function fullAudit(job, expected, ctrl) {
     mode: 'full', url: job.url, fileName, magic, bytes, declared, encoded,
     blocks: blockIdx, padBlocks, highBlocks, zeroBytes,
     dangerous: res.dangerous, libraries: res.libraries, sha, expected,
-    demo: !!job.demo, forceKnown: job.demo === 'known' ? Signatures.LIST[1] : null, intel, zipInspection
+    demo: !!job.demo, forceKnown: job.demo === 'known' ? Signatures.LIST[1] : null, zipInspection
   };
   const ev = evaluate(ctx);
   if (job.demo) ev.findings.unshift({ level: 'info', text: 'SIMULATED DEMO DATA: synthetic stream, not a real remote file.' });
