@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>EnicRay</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <div class="logo">ENIC<span>RAY</span></div>
+    <div class="tag">Pre-Download Forensic Auditor</div>
+    <div id="status" class="status idle">IDLE</div>
+  </header>
+
+  <section class="card">
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="url" role="tab">URL Directa</button>
+      <button class="tab" data-tab="intercept" role="tab">Interceptar Descarga</button>
+    </div>
+    <div id="paneUrl" class="pane">
+      <input id="url" type="text" spellcheck="false" placeholder="Pegar URL Directa (https://...)">
+    </div>
+    <div id="paneIntercept" class="pane hidden">
+      <button id="btnArm" class="btn secondary">Interceptar Próxima Descarga</button>
+    </div>
+    <select id="mode">
+      <option value="full">Auditoría Completa 100% (Streaming)</option>
+      <option value="range">Rayos X Rápidos (HTTP Range)</option>
+    </select>
+  </section>
+
+  <section class="card slim">
+    <div class="auto"><i class="dot"></i><span>Auto-Detección: Firmas Conocidas (Anti-Malware)</span><em>ACTIVO</em></div>
+    <details id="customDet">
+      <summary>Hash personalizado</summary>
+      <input id="expected" type="text" spellcheck="false" maxlength="64" placeholder="Target SHA-256 (Opcional)">
+      <div id="hashWarn" class="warn hidden">El hash debe tener 64 caracteres hexadecimales.</div>
+    </details>
+  </section>
+
+  <details class="card slim" id="detBox">
+    <summary>Detección en la página <span id="detCount"></span>
+      <button id="btnRescan" class="mini">re-escanear</button><button id="btnHighlight" class="mini">resaltar</button></summary>
+    <div id="detections" class="detections">Escaneando página…</div>
+  </details>
+
+  <div class="row actions">
+    <button id="btnStart" class="btn primary">Iniciar Análisis</button>
+    <button id="btnCancel" class="btn danger hidden">Cancelar</button>
+  </div>
+
+  <section class="card">
+    <h2>Mapa de Rayos X</h2>
+    <canvas id="xray" width="512" height="30"></canvas>
+    <div class="legend">
+      <span><i class="c-blue"></i>Cabecera válida</span>
+      <span><i class="c-green"></i>Datos limpios</span>
+      <span><i class="c-yellow"></i>Alta entropía</span>
+      <span><i class="c-red"></i>Amenaza / relleno</span>
+    </div>
+    <div class="bar"><div id="barFill"></div></div>
+    <div class="telemetry">
+      <div><label>Procesado</label><b id="tBytes">0 B</b></div>
+      <div><label>Velocidad</label><b id="tSpeed">0 MB/s</b></div>
+      <div><label>Entropía media</label><b id="tEnt">0.00</b></div>
+      <div><label>Bloques</label><b id="tBlocks">0</b></div>
+    </div>
+    <label class="hl">SHA-256 (en vivo)</label>
+    <code id="tHash">—</code>
+  </section>
+
+  <section id="verdictCard" class="card hidden">
+    <div id="verdict" class="verdict">—</div>
+    <ul id="findings"></ul>
+    <div class="row actions">
+      <button id="btnCopy" class="btn primary">Copiar Reporte Forense</button>
+      <button id="btnDownload" class="btn secondary">Descargar de todos modos</button>
+    </div>
+  </section>
+
+  <div id="error" class="warn hidden"></div>
+
+  <footer class="demo">
+    <span>Test Demo (Simular Archivo):</span>
+    <button id="btnDemoClean" class="demo-btn" title="Simula un binario limpio">limpio</button>
+    <button id="btnDemoThreat" class="demo-btn" title="Simula un binario malicioso con relleno falso">amenaza</button>
+    <button id="btnDemoKnown" class="demo-btn" title="Simula una coincidencia con una firma conocida">firma conocida</button>
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>
